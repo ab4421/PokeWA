@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -678,28 +677,9 @@ func extractDirectPathFromURL(url string) string {
 }
 
 // Start a REST API server to expose the WhatsApp client functionality
-func requireAPIKey(apiToken string, handler http.HandlerFunc) http.HandlerFunc {
-	if strings.TrimSpace(apiToken) == "" {
-		return handler
-	}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		provided := r.Header.Get("X-API-Key")
-		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(apiToken)) != 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
-			return
-		}
-		handler(w, r)
-	}
-}
-
-func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int, apiToken string) {
-	mux := http.NewServeMux()
-
+func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
 	// Handler for sending messages
-	mux.HandleFunc("/api/send", requireAPIKey(apiToken, func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -742,10 +722,10 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Success: success,
 			Message: message,
 		})
-	}))
+	})
 
 	// Handler for downloading media
-	mux.HandleFunc("/api/download", requireAPIKey(apiToken, func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -793,7 +773,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Filename: filename,
 			Path:     path,
 		})
-	}))
+	})
 
 	// Start the server
 	serverAddr := fmt.Sprintf(":%d", port)
@@ -801,11 +781,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 	// Run server in a goroutine so it doesn't block
 	go func() {
-		server := &http.Server{
-			Addr:    serverAddr,
-			Handler: mux,
-		}
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := http.ListenAndServe(serverAddr, nil); err != nil {
 			fmt.Printf("REST API server error: %v\n", err)
 		}
 	}()
@@ -942,15 +918,8 @@ func main() {
 		port = 8080
 	}
 
-	apiToken := strings.TrimSpace(os.Getenv("WHATSAPP_API_TOKEN"))
-	if apiToken == "" {
-		logger.Warnf("WHATSAPP_API_TOKEN is not set; REST API requests will be unauthenticated")
-	} else {
-		logger.Infof("REST API authentication enabled")
-	}
-
 	// Start REST API server
-	startRESTServer(client, messageStore, port, apiToken)
+	startRESTServer(client, messageStore, port)
 
 	// Create a channel to keep the main goroutine alive
 	exitChan := make(chan os.Signal, 1)
