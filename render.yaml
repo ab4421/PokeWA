@@ -1,5 +1,22 @@
 services:
   - type: web
+    name: whatsapp-bridge
+    runtime: go
+    plan: starter
+    autoDeploy: false
+    buildCommand: go build -o bin/whatsapp-bridge ./whatsapp-bridge
+    startCommand: ./bin/whatsapp-bridge
+    envVars:
+      - key: WHATSAPP_BRIDGE_PORT
+        value: ${PORT}
+      - key: WHATSAPP_API_TOKEN
+        generateValue: true
+    disk:
+      name: whatsapp-bridge-store
+      mountPath: /opt/render/project/src/whatsapp-bridge/store
+      sizeGB: 1
+
+  - type: web
     name: fastmcp-server
     runtime: python
     buildCommand: pip install -r requirements.txt
@@ -9,3 +26,8 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: WHATSAPP_API_TOKEN
+        fromService:
+          type: web
+          name: whatsapp-bridge
+          key: WHATSAPP_API_TOKEN
